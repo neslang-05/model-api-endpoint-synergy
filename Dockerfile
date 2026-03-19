@@ -5,6 +5,7 @@ WORKDIR /workspace
 # Install dependencies required for torch vision etc.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    libgomp1 \
     libglib2.0-0 \
     libsm6 \
     libxext6 \
@@ -20,4 +21,4 @@ COPY model/ ./model/
 
 # Expose port and run the app
 EXPOSE 8080
-CMD ["uvicorn", "app.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["sh", "-c", "uvicorn app.app:app --host 0.0.0.0 --port ${PORT:-8080}"]
