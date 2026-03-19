@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paddy Seed Classifier</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --border: #d1d5db;
+      --success: #047857;
+      --error: #b91c1c;
+      --shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 560px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.6rem;
+    }
+
+    p {
+      margin: 0 0 16px;
+      color: var(--muted);
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--primary-hover);
+    }
+
+    button:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+    }
+
+    .preview {
+      margin-top: 16px;
+      text-align: center;
+    }
+
+    .preview img {
+      max-width: 100%;
+      max-height: 260px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      display: none;
+    }
+
+    .result {
+      margin-top: 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: #fafafa;
+      display: none;
+    }
+
+    .result.success {
+      border-color: rgba(4, 120, 87, 0.35);
+      color: var(--success);
+      background: rgba(4, 120, 87, 0.06);
+    }
+
+    .result.error {
+      border-color: rgba(185, 28, 28, 0.35);
+      color: var(--error);
+      background: rgba(185, 28, 28, 0.06);
+    }
+
+    .meta {
+      margin-top: 8px;
+      color: var(--text);
+    }
+
+    .endpoint {
+      margin-top: 14px;
+      font-size: 0.85rem;
+      color: var(--muted);
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Paddy Seed Classifier</h1>
+    <p>Upload a seed image and get a quality prediction from your deployed API.</p>
+
+    <form id="predictForm">
+      <div class="field">
+        <input id="fileInput" type="file" accept="image/*" required />
+      </div>
+      <button id="submitBtn" type="submit">Predict</button>
+    </form>
+
+    <div class="preview">
+      <img id="previewImage" alt="Selected image preview" />
+    </div>
+
+    <section id="resultBox" class="result" aria-live="polite"></section>
+
+    <div class="endpoint">
+      API Endpoint: <span id="endpointText"></span>
+    </div>
+  </main>
+
+  <script>
+    const API_BASE_URL = "https://resnet-api-297419987783.asia-south1.run.app";
+
+    const form = document.getElementById("predictForm");
+    const fileInput = document.getElementById("fileInput");
+    const submitBtn = document.getElementById("submitBtn");
+    const resultBox = document.getElementById("resultBox");
+    const previewImage = document.getElementById("previewImage");
+    const endpointText = document.getElementById("endpointText");
+
+    endpointText.textContent = `${API_BASE_URL}/predict`;
+
+    function showResult(message, type = "success") {
+      resultBox.className = `result ${type}`;
+      resultBox.style.display = "block";
+      resultBox.innerHTML = message;
+    }
+
+    function clearResult() {
+      resultBox.style.display = "none";
+      resultBox.className = "result";
+      resultBox.textContent = "";
+    }
+
+    fileInput.addEventListener("change", () => {
+      clearResult();
+      const file = fileInput.files?.[0];
+      if (!file) {
+        previewImage.style.display = "none";
+        previewImage.src = "";
+        return;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      previewImage.src = objectUrl;
+      previewImage.style.display = "block";
+      previewImage.onload = () => URL.revokeObjectURL(objectUrl);
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      clearResult();
+
+      const file = fileInput.files?.[0];
+      if (!file) {
+        showResult("Please select an image file first.", "error");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Predicting...";
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/predict`, {
+          method: "POST",
+          body: formData
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok) {
+          const detail = payload?.detail || "Prediction failed.";
+          showResult(`Error: ${detail}`, "error");
+          return;
+        }
+
+        const confidence = typeof payload.confidence === "number"
+          ? `${(payload.confidence * 100).toFixed(2)}%`
+          : "N/A";
+
+        showResult(
+          `<strong>Prediction:</strong> ${payload.prediction || "N/A"}
+           <div class="meta"><strong>Confidence:</strong> ${confidence}</div>
+           <div class="meta"><strong>File:</strong> ${payload.filename || file.name}</div>`,
+          "success"
+        );
+      } catch (error) {
+        showResult(
+          `Unable to reach API. If this is a CORS issue, allow your frontend origin in FastAPI CORS settings.`,
+          "error"
+        );
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Predict";
+      }
+    });
+  </script>
+</body>
+</html>

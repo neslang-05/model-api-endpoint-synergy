@@ -1,8 +1,26 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 import os
 from threading import Lock
 
 app = FastAPI(title="Paddy Seed Quality Classifier API", description="FastAPI service for predicting Paddy Seed Quality")
+
+
+def _get_allowed_origins():
+    configured_origins = os.environ.get('CORS_ALLOW_ORIGINS', '*').strip()
+    if configured_origins == '*':
+        return ['*']
+
+    return [origin.strip() for origin in configured_origins.split(',') if origin.strip()]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_get_allowed_origins(),
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _model_lock = Lock()
 _model_module = None
