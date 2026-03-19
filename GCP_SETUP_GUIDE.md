@@ -1,91 +1,159 @@
-# Google Cloud Setup Guide
+# Google Cloud Run Setup Guide
 
-To get the deployment working cleanly with the GitHub Actions pipeline, we need to create the Google Cloud project, enable the required APIs, set up an Artifact Registry (to store your Docker Image), and create a Service Account for GitHub so it could deploy the image.
+This guide covers:
+1. One-time Google Cloud setup
+2. Manual deployment from your machine
+3. Automatic deployment from GitHub Actions
 
-Here is the step-by-step guide to run either through your Google Cloud Console or using the `gcloud` CLI (which is usually much faster).
+## 1) One-Time Google Cloud Setup
 
-### Step 1: Initialize the Project and Enable APIs
+### Prerequisites
+- Google Cloud project with billing enabled
+- `gcloud` CLI installed and authenticated (`gcloud auth login`)
+- Docker installed
 
-Open the Google Cloud Shell terminal in your console (the `>_` icon at the top right) or run this on your local machine if you have the `gcloud` CLI installed.
+### Set variables
 
 ```bash
-# 1. Set your Project ID (Replace with your actual project ID)
-PROJECT_ID="synergy-490715"
-gcloud config set project $PROJECT_ID
+PROJECT_ID="<your-project-id>"
+REGION="asia-south1"
+REPO="resnet-repo"
+SERVICE="resnet-api"
 
-# 2. Enable Required APIs (Cloud Run, Artifact Registry, IAM)
+gcloud config set project ${PROJECT_ID}
+```
+
+### Enable required APIs
+
+```bash
 gcloud services enable run.googleapis.com
 gcloud services enable artifactregistry.googleapis.com
 gcloud services enable iamcredentials.googleapis.com
 ```
 
-### Step 2: Create an Artifact Registry Repository
-
-This acts as the Docker container storage inside Google Cloud where GitHub Actions will push the built images.
+### Create Artifact Registry (one-time)
 
 ```bash
-# Choose a region, e.g., asia-south1, us-central1, etc.
-REGION="asia-south1"
-
-gcloud artifacts repositories create resnet-repo \
+gcloud artifacts repositories create ${REPO} \
   --repository-format=docker \
-  --location=$REGION \
+  --location=${REGION} \
   --description="Model deployment repo"
 ```
 
-### Step 3: Create a Service Account for GitHub Actions
+## 2) Manual Deployment to Cloud Run
 
-We need to create a specific identity (service account) that gives GitHub the precise permissions needed to push the image and start Cloud Run.
+### Build and push container image
 
 ```bash
-# 1. Create the Service Account
+IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:manual-$(date +%Y%m%d%H%M%S)"
+
+gcloud auth configure-docker ${REGION}-docker.pkg.dev
+docker build -t ${IMAGE_URI} .
+docker push ${IMAGE_URI}
+```
+
+### Deploy service
+
+```bash
+gcloud run deploy ${SERVICE} \
+  --image ${IMAGE_URI} \
+  --region ${REGION} \
+  --platform managed \
+  --allow-unauthenticated \
+  --port 8080 \
+  --memory 1Gi \
+  --cpu 1
+```
+
+### Get service URL
+
+```bash
+gcloud run services describe ${SERVICE} \
+  --region ${REGION} \
+  --format='value(status.url)'
+```
+
+### Validate deployment
+
+```bash
+curl "<cloud-run-url>/"
+
+curl -X POST "<cloud-run-url>/predict" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/path/to/seed.jpg"
+```
+
+## 3) Automatic Deployment via GitHub Actions
+
+Workflow file: `.github/workflows/deploy.yml`
+
+Trigger:
+- Every push to `main`
+
+### Create deploy service account
+
+```bash
 gcloud iam service-accounts create github-actions-sa \
   --display-name "GitHub Actions Service Account"
 
-# Get the full email of the new service account
 SA_EMAIL="github-actions-sa@${PROJECT_ID}.iam.gserviceaccount.com"
 
-# 2. Grant Cloud Run Admin Role (Allows deploying the application)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/run.admin"
 
-# 3. Grant Artifact Registry Writer Role (Allows pushing Docker images)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/artifactregistry.writer"
 
-# 4. Grant IAM Service Account User Role (Run needs this to execute the container)
-gcloud projects add-iam-policy-binding $PROJECT_ID \
+gcloud projects add-iam-policy-binding ${PROJECT_ID} \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/iam.serviceAccountUser"
 ```
 
-### Step 4: Generate the JSON Key
-
-We need to generate a key file for this Service Account, which we will provide to GitHub safely as a secret.
+### Create JSON key (for current workflow)
 
 ```bash
-# Generate the key and save it to a file named 'key.json'
 gcloud iam service-accounts keys create key.json \
   --iam-account=${SA_EMAIL}
-
-# Print the key contents to the console so you can copy it
-cat key.json
 ```
 
-### Step 5: Configure GitHub Secrets
+### Add GitHub repository secrets
 
-Take the contents from the `key.json` file and the other variables to your GitHub Repository Settings.
+Go to: **Repository Settings → Secrets and variables → Actions**
 
-1. Go to your repository on GitHub.
-2. Click **Settings** > **Secrets and variables** > **Actions** > **New repository secret**.
-3. Add the following secrets carefully:
+Add:
+- `GCP_PROJECT_ID` = your GCP project ID
+- `GCP_REGION` = deploy region (for example `asia-south1`)
+- `GCP_SA_KEY` = full content of `key.json`
 
-| Secret Name | What to set it to |
-| :--- | :--- |
-| `GCP_PROJECT_ID` | Your actual Project ID (e.g. `my-awesome-gcp-project-123`) |
-| `GCP_REGION` | The region you used for the Artifact Registry (e.g. `asia-south1` or `us-central1`) |
-| `GCP_SA_KEY` | Paste the **entire content** of the `key.json` file you generated above. |
+Then push to `main`:
 
-Once this is configured, pushing the code to the `main` branch will automatically launch the deployed FastAPI backend!
+```bash
+git push origin main
+```
+
+The workflow will build an immutable image tagged with commit SHA, push it to Artifact Registry, and deploy it to Cloud Run.
+
+## 4) Troubleshooting
+
+- Build fails:
+  - Verify `Dockerfile` and `requirements.txt`.
+- Push fails:
+  - Verify Artifact Registry exists in selected region.
+  - Verify service account has `roles/artifactregistry.writer`.
+- Deploy fails:
+  - Verify `roles/run.admin` and `roles/iam.serviceAccountUser` are granted.
+  - Verify Cloud Run API is enabled.
+- Runtime errors:
+
+```bash
+gcloud run services logs read ${SERVICE} --region ${REGION}
+```
+
+## 5) Security Notes
+
+- Do not commit `key.json` to Git.
+- Keep service account permissions minimal.
+- Use GitHub Secrets for credentials only.
