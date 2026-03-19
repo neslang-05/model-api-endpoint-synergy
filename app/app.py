@@ -6,6 +6,14 @@ app = FastAPI(title="Paddy Seed Quality Classifier API", description="FastAPI se
 
 # Automatically detect model path assuming app is run from project root
 MODEL_PATH = os.environ.get('MODEL_PATH', os.path.join(os.path.dirname(__file__), '..', 'model', 'paddy_seed_model_final.pth'))
+
+# Ensure model exists before loading
+if not os.path.exists(MODEL_PATH):
+    print(f"CRITICAL: Model file not found at {MODEL_PATH}")
+    # Fallback to absolute container path if relative fails
+    MODEL_PATH = "/workspace/model/paddy_seed_model_final.pth"
+
+print(f"Loading model from: {MODEL_PATH}")
 model = get_model(MODEL_PATH)
 
 @app.get("/")
