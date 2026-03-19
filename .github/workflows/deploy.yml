@@ -1,0 +1,60 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  SERVICE: resnet-api
+  REPO: resnet-repo
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------------------
+      # Checkout Code
+      # -------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # -------------------------------------
+      # Authenticate with GCP
+      # -------------------------------------
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # -------------------------------------
+      # Configure Docker
+      # -------------------------------------
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${REGION}-docker.pkg.dev
+
+      # -------------------------------------
+      # Build and Push Image
+      # -------------------------------------
+      - name: Build and Push
+        run: |
+          IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/resnet-api
+          docker build -t $IMAGE .
+          docker push $IMAGE
+
+      # -------------------------------------
+      # Deploy to Cloud Run
+      # -------------------------------------
+      - name: Deploy
+        run: |
+          IMAGE=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/resnet-api
+          gcloud run deploy $SERVICE \
+            --image $IMAGE \
+            --region $REGION \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 1Gi \
+            --cpu 1

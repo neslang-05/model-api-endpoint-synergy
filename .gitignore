@@ -1,0 +1,43 @@
+# GCP Credentials (CRITICAL: Never commit this)
+key.json
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyTest / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build / Distribution
+build/
+dist/
+*.egg-info/
