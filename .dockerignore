@@ -16,3 +16,16 @@ build
 dist
 htmlcov
 .pytest_cache
+
+# Exclude local and development-only files from build context
+.gitignore
+chat.py
+run.py
+index.html
+
+# Keep docs out of context except dependency lock file used by Dockerfile
+docs/**
+!docs/requirements.txt
+
+# Exclude unused heavyweight model artifact
+model/model.pth
