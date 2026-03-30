@@ -43,6 +43,22 @@ def _infer_num_classes(state_dict, class_names, num_classes):
     if isinstance(class_names, (list, tuple)) and len(class_names) > 0:
         return len(class_names)
 
+    fc_weight_keys = []
+    for key, tensor in state_dict.items():
+        if not key.startswith('fc.') or not key.endswith('.weight'):
+            continue
+        if not hasattr(tensor, 'shape') or len(tensor.shape) < 1:
+            continue
+
+        parts = key.split('.')
+        if len(parts) >= 3 and parts[1].isdigit():
+            fc_weight_keys.append((int(parts[1]), tensor))
+
+    if fc_weight_keys:
+        # The output layer is the highest indexed Linear weight in the classifier.
+        _, tensor = max(fc_weight_keys, key=lambda item: item[0])
+        return int(tensor.shape[0])
+
     for key in ('fc.4.weight', 'fc.weight'):
         tensor = state_dict.get(key)
         if tensor is not None and hasattr(tensor, 'shape') and len(tensor.shape) >= 1:
@@ -74,12 +90,39 @@ def _build_model(architecture, num_classes):
     return model
 
 
+def _build_model_from_state_dict(architecture, num_classes, state_dict):
+    model = _build_model(architecture, num_classes)
+
+    # Match the deeper classifier used by this checkpoint:
+    # Dropout -> Linear(2048,512) -> ReLU -> BN(512) -> Dropout ->
+    # Linear(512,256) -> ReLU -> BN(256) -> Dropout -> Linear(256,num_classes)
+    if 'fc.9.weight' in state_dict and 'fc.5.weight' in state_dict and 'fc.1.weight' in state_dict:
+        first_linear_out = int(state_dict['fc.1.weight'].shape[0])
+        second_linear_out = int(state_dict['fc.5.weight'].shape[0])
+        final_out = int(state_dict['fc.9.weight'].shape[0])
+
+        model.fc = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(model.fc[1].in_features, first_linear_out),
+            nn.ReLU(),
+            nn.BatchNorm1d(first_linear_out),
+            nn.Dropout(0.5),
+            nn.Linear(first_linear_out, second_linear_out),
+            nn.ReLU(),
+            nn.BatchNorm1d(second_linear_out),
+            nn.Dropout(0.5),
+            nn.Linear(second_linear_out, final_out),
+        )
+
+    return model
+
+
 def get_model(model_path):
     checkpoint = torch.load(model_path, map_location=torch.device('cpu'))
     state_dict, architecture, class_names, num_classes = _extract_checkpoint_details(checkpoint)
     resolved_num_classes = _infer_num_classes(state_dict, class_names, num_classes)
 
-    model = _build_model(architecture, resolved_num_classes)
+    model = _build_model_from_state_dict(architecture, resolved_num_classes, state_dict)
     model.load_state_dict(state_dict, strict=True)
     model.eval()
 
