@@ -41,3 +41,8 @@ Thumbs.db
 build/
 dist/
 *.egg-info/
+
+
+#ignore model files
+model/model-v1.pth
+model/model-v2.pth
